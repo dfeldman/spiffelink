@@ -2,18 +2,25 @@ package config
 
 import (
 	"fmt"
+	"net/url"
+	"regexp"
 
 	"os"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/dfeldman/spiffelink/pkg/slerror"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
+	"github.com/spiffe/go-spiffe/spiffe"
 )
 
 // Structures to store all the config information
 type DatabaseConfig struct {
+	Name             string
 	Type             string
 	ConnectionString string
 	SpiffeID         string
+	ParsedSpiffeID   *url.URL
 }
 
 type OTLPExporterConfig struct {
@@ -43,6 +50,13 @@ type Config struct {
 	OpenTelemetry         OpenTelemetryConfig
 }
 
+var debugMode = true
+
+func isValidName(s string) bool {
+	r := regexp.MustCompile("^[a-zA-Z0-9]+$")
+	return (len(s) < 255) && r.MatchString(s)
+}
+
 func setLogLevel(log *logrus.Logger) {
 	levelStr := viper.GetString("log.level")
 
@@ -66,18 +80,18 @@ func checkSpiffeAgentSocket(log *logrus.Logger, socketPath string) error {
 	info, err := os.Stat(socketPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("socket does not exist: %v", err)
+			return slerror.AgentSocketPathDoesNotExistError(log, socketPath)
 		}
-		return fmt.Errorf("failed to stat socket: %v", err)
+		return slerror.AgentSocketPathStatFailedError(log, socketPath)
 	}
 
 	if info.Mode()&os.ModeSocket == 0 {
-		return fmt.Errorf("not a socket file")
+		return slerror.AgentSocketPathInvalidError(log, socketPath)
 	}
 
 	// Check for read permission
 	if info.Mode().Perm()&0600 == 0 {
-		return fmt.Errorf("socket file is not readable and writeable")
+		return slerror.InvalidPermissionsAgentSocketPathError(log, socketPath)
 	}
 
 	log.Infof("Using SPIFFE agent socket: %s", socketPath)
@@ -101,13 +115,54 @@ func ReadConfig(log *logrus.Logger) (Config, []error) {
 
 	err := viper.ReadInConfig()
 	if err != nil {
-		errs = append(errs, fmt.Errorf("Unable to find config file: %v", err))
+		errs = append(errs, slerror.UnableToReadConfigFileError(log, err))
 		return Config{}, errs
 	}
 
 	return ParseConfig(log)
 }
 
+// Checks the fields in the DatabaseConfig structure and parses out the contents of the SpiffeID field.
+func parseDatabaseConfigFields(log *logrus.Logger, db *DatabaseConfig) []error {
+	var errs []error
+	// Check there are no empty fields
+	if db.Name == "" {
+		errs = append(errs, slerror.DatabaseNameEmptyError(log))
+	}
+	if db.Type == "" {
+		errs = append(errs, slerror.DatabaseTypeEmptyError(log))
+	}
+	if db.ConnectionString == "" {
+		errs = append(errs, slerror.ConnectionStringEmptyError(log))
+	}
+	if db.SpiffeID == "" {
+		errs = append(errs, slerror.SpiffeIDEmptyError(log))
+	}
+
+	// Check the database name is alphanumeric
+	if !isValidName(db.Name) {
+		errs = append(errs, fmt.Errorf("invalid database name %s", db.Name))
+	}
+
+	// Check that the Type field is a supported database type
+	switch db.Type {
+	case "oracle":
+		break
+	case "dummy":
+		break
+	default:
+		errs = append(errs, slerror.InvalidDatabaseType(log))
+	}
+
+	parsedSpiffeId, err := spiffe.ParseID(db.SpiffeID, spiffe.AllowAny())
+	if err != nil {
+		errs = append(errs, fmt.Errorf("cannot parse spiffe ID %s", db.SpiffeID))
+	}
+	db.ParsedSpiffeID = parsedSpiffeId
+	return errs
+}
+
+// Parse the config file. It is automatically read from a location set with viper.AddConfigPath.
 func ParseConfig(log *logrus.Logger) (Config, []error) {
 	var config Config
 	var errs []error
@@ -118,25 +173,18 @@ func ParseConfig(log *logrus.Logger) (Config, []error) {
 		return Config{}, errs
 	}
 
+	if debugMode {
+		spew.Dump(config)
+	}
+
 	setLogLevel(log)
-
-	if config.SpiffeAgentSocketPath == "" {
-		errs = append(errs, fmt.Errorf("spiffe agent socket path is empty"))
-	}
-
-	err = checkSpiffeAgentSocket(log, config.SpiffeAgentSocketPath)
-	if err != nil {
-		errs = append(errs, err)
-	}
 
 	spiffeIDs := make(map[string]bool)
 	for _, db := range config.Databases {
-		if db.Type == "" || db.ConnectionString == "" || db.SpiffeID == "" {
-			errs = append(errs, fmt.Errorf("empty fields in database configuration"))
-		}
-		if _, exists := spiffeIDs[db.SpiffeID]; exists {
-			errs = append(errs, fmt.Errorf("duplicate spiffe ID %s", db.SpiffeID))
-		}
+		fmt.Printf("XXX %+v Y\n", config)
+		errs := parseDatabaseConfigFields(log, &db)
+		errs = append(errs, errs...)
+
 		spiffeIDs[db.SpiffeID] = true
 	}
 
@@ -149,4 +197,19 @@ func ParseConfig(log *logrus.Logger) (Config, []error) {
 	}
 
 	return config, errs
+}
+
+// Perform additional validation on the config file that requires network and FS access.
+// In particular, check that files, binaries and addresses referred to actually exist.
+func ValidateConfig(log *logrus.Logger, config Config) []error {
+	var errs []error
+	if config.SpiffeAgentSocketPath == "" {
+		errs = append(errs, fmt.Errorf("spiffe agent socket path is empty"))
+	}
+
+	err := checkSpiffeAgentSocket(log, config.SpiffeAgentSocketPath)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }

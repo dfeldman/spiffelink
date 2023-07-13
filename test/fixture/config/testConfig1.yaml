@@ -1,0 +1,6 @@
+SpiffeAgentSocketPath: agent.sock
+Databases:
+ - Name: my-oracle-database
+   Type: oracle
+   ConnectionString: localhost:8080
+   SpiffeID: spiffe://test/x
