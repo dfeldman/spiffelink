@@ -1,0 +1,18 @@
+version: '3'
+services:
+  spire-server:
+    image: ghcr.io/spiffe/spire-server:1.8.1
+    volumes:
+      - ./conf/server:/opt/spire/conf/server
+    command: ["-config", "/opt/spire/conf/server/server.conf"]
+  spire-agent:
+    image: ghcr.io/spiffe/spire-agent:1.8.1
+    volumes:
+      - ./conf/agent:/opt/spire/conf/agent
+      - socket:/socket
+    command: ["-config", "/opt/spire/conf/agent/agent.conf"]
+  workload: 
+    image: spiffelink:latest-local
+    command: tail -f /dev/null
+volumes:
+  socket:
