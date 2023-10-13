@@ -1,0 +1,11 @@
+spiffeAgentSocketPath: "unix:/socket/socket/api.sock"
+
+databases:
+  - name: dummy
+    type: dummy
+    connectionString: "dummy"
+    spiffeID: "spiffe://domain.test/workload"
+
+log:
+    level: DEBUG
+

@@ -1,0 +1,31 @@
+spiffeAgentSocketPath: "/tmp/spire-agent/public/api.sock"
+
+databases:
+  - type: oracle
+    connectionString: "oracle://user:pass@localhost/db1"
+    spiffeID: "spiffe://example.org/oracle"
+  - type: postgres
+    connectionString: "postgres://user:pass@localhost/db2"
+    spiffeID: "spiffe://example.org/postgres"
+  - type: mongo
+    connectionString: "mongodb://user:pass@localhost/db3"
+    spiffeID: "spiffe://example.org/mongo"
+
+opentelemetry:
+  otlpExporter:
+    endpoint: "your-backend-endpoint:4317"
+    insecure: true
+    timeout: "10s"
+    retryOnFailure:
+      enabled: true
+      initialInterval: ".5s"
+      maxInterval: "12s"
+      maxElapsedTime: "30s"
+    sendingQueue:
+      enabled: true
+      numConsumers: 10
+      queueSize: 5000
+
+log:
+    level: DEBUG
+
