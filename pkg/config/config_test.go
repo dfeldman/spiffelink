@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/dfeldman/spiffelink/pkg/slerror"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func assertNoErrors(t *testing.T, errs []error) {
+func assertNoErrors(t *testing.T, errs []slerror.SLError) {
 	if len(errs) > 0 {
 		t.Helper()
 		for i, err := range errs {
-			fmt.Printf("Error %d in ParseConfig: %v\n", i, err)
+			fmt.Printf("Error %d in ParseConfig: %v\n", i, err.Err)
 		}
 		t.FailNow()
 	}

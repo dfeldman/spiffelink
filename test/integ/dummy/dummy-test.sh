@@ -1,6 +1,10 @@
-#!/bin/bash
+#!/bin/bash -xeu
 # This test is heavily based on /test/integration/suites/join-token in the spire package
+# WARNING this test isn't working on Mac
+docker-compose down
+docker volume rm dummy-socket
 
+docker-compose up -d shell # for debugging
 echo "Start spire server"
 docker-compose up -d spire-server
 
@@ -15,8 +19,11 @@ TOKEN=$(docker-compose exec -T spire-server \
 echo "using join token ${TOKEN}..."
 cat conf/agent/agent.conf.template | sed "s#TOKEN#${TOKEN}#g" > conf/agent/agent.conf
 
+# wait for server to boot up
+sleep 5 
+
 echo "start the spire agent"
-docker-compose up -d spire-agent
+docker-compose up -d workload
 
 echo "creating registration entry..."
 docker-compose exec -T spire-server \
@@ -33,8 +40,8 @@ CHECKINTERVAL=1
 COMPLETE=0
 for ((i=1;i<=MAXCHECKS;i++)); do
     echo "checking for synced workload entry ($i of $MAXCHECKS max)..."
-    docker-compose logs spire-agent
-    if docker-compose logs spire-agent | grep "spiffe://domain.test/workload"; then
+    docker-compose logs workload
+    if docker-compose logs workload | grep "spiffe://domain.test/workload"; then
         COMPLETE=1
         break
     fi
@@ -46,6 +53,10 @@ echo "timed out waiting for agent to sync down entry"
 fi
 
 echo "checking X509-SVID..."
-docker-compose exec -T spire-agent \
+docker-compose exec -T workload \
     /opt/spire/bin/spire-agent api fetch x509 -socketPath /socket/socket/api.sock || (echo "Agent registration didn't work"; exit)
 
+# TODO it make take a long time for the workload API to come up
+sleep 10
+
+docker-compose exec -T workload /bin/spiffelink run --config /conf

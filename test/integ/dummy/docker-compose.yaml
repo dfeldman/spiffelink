@@ -5,14 +5,21 @@ services:
     volumes:
       - ./conf/server:/opt/spire/conf/server
     command: ["-config", "/opt/spire/conf/server/server.conf"]
-  spire-agent:
-    image: ghcr.io/spiffe/spire-agent:1.8.1
-    volumes:
-      - ./conf/agent:/opt/spire/conf/agent
-      - socket:/socket
-    command: ["-config", "/opt/spire/conf/agent/agent.conf"]
   workload: 
     image: spiffelink:latest-local
-    command: tail -f /dev/null
+    # TODO need to rethink the entrypoint this is confusing
+    #command: run --config /conf/
+    entrypoint: "/opt/spire/bin/spire-agent"
+    command: ["run","-config","/opt/spire/conf/agent/agent.conf"]
+    volumes: 
+     - ./conf/agent:/opt/spire/conf/agent
+     - ./conf/spiffelink:/conf
+  # Just for debug
+  shell: 
+    image: alpine:latest
+    command: sleep 36000
+    volumes: 
+     - ./conf/spiffelink:/conf
+     - socket:/socket
 volumes:
   socket:

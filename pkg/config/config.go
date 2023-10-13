@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"regexp"
 
 	"os"
@@ -11,8 +10,15 @@ import (
 	"github.com/dfeldman/spiffelink/pkg/slerror"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	"github.com/spiffe/go-spiffe/spiffe"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
+
+const DEFAULT_TIMEOUT_SECONDS = 300
+
+type ShellContextConfig struct {
+	ShellType   string
+	ContainerID string
+}
 
 // Structures to store all the config information
 type DatabaseConfig struct {
@@ -20,7 +26,9 @@ type DatabaseConfig struct {
 	Type             string
 	ConnectionString string
 	SpiffeID         string
-	ParsedSpiffeID   *url.URL
+	ParsedSpiffeID   spiffeid.ID
+	Timeout          int
+	Shell            ShellContextConfig
 }
 
 type OTLPExporterConfig struct {
@@ -99,11 +107,11 @@ func checkSpiffeAgentSocket(log *logrus.Logger, socketPath string) error {
 	return nil
 }
 
-func ReadConfig(log *logrus.Logger) (Config, []error) {
-	var errs []error
+func ReadConfig(log *logrus.Logger) (Config, []slerror.SLError) {
+	var errs []slerror.SLError
 
 	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
+	//viper.AddConfigPath(".")
 	viper.SetConfigName("spiffelink")
 	viper.AddConfigPath("config/")
 	viper.AddConfigPath("/etc/spiffelink/")
@@ -138,6 +146,13 @@ func parseDatabaseConfigFields(log *logrus.Logger, db *DatabaseConfig) []error {
 	if db.SpiffeID == "" {
 		errs = append(errs, slerror.SpiffeIDEmptyError(log))
 	}
+	if db.Timeout == 0 {
+		db.Timeout = DEFAULT_TIMEOUT_SECONDS
+	}
+	// TODO We need to check for errors in the Shell configuration here.
+	if db.Shell.ShellType == "" {
+		db.Shell.ShellType = "LocalShell"
+	}
 
 	// Check the database name is alphanumeric
 	if !isValidName(db.Name) {
@@ -154,7 +169,7 @@ func parseDatabaseConfigFields(log *logrus.Logger, db *DatabaseConfig) []error {
 		errs = append(errs, slerror.InvalidDatabaseType(log))
 	}
 
-	parsedSpiffeId, err := spiffe.ParseID(db.SpiffeID, spiffe.AllowAny())
+	parsedSpiffeId, err := spiffeid.FromString(db.SpiffeID)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("cannot parse spiffe ID %s", db.SpiffeID))
 	}
@@ -163,13 +178,13 @@ func parseDatabaseConfigFields(log *logrus.Logger, db *DatabaseConfig) []error {
 }
 
 // Parse the config file. It is automatically read from a location set with viper.AddConfigPath.
-func ParseConfig(log *logrus.Logger) (Config, []error) {
+func ParseConfig(log *logrus.Logger) (Config, []slerror.SLError) {
 	var config Config
-	var errs []error
+	var errs []slerror.SLError
 
 	err := viper.Unmarshal(&config)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("unable to parse configuration file, %v", err))
+		errs = append(errs, slerror.CantParseConfigFile(err, log))
 		return Config{}, errs
 	}
 
@@ -181,7 +196,6 @@ func ParseConfig(log *logrus.Logger) (Config, []error) {
 
 	spiffeIDs := make(map[string]bool)
 	for _, db := range config.Databases {
-		fmt.Printf("XXX %+v Y\n", config)
 		errs := parseDatabaseConfigFields(log, &db)
 		errs = append(errs, errs...)
 
@@ -189,7 +203,8 @@ func ParseConfig(log *logrus.Logger) (Config, []error) {
 	}
 
 	if len(spiffeIDs) == 0 {
-		errs = append(errs, fmt.Errorf("no databases given in configuration file"))
+		// TODO need to handle this error better
+		errs = append(errs, slerror.CantParseConfigFile(fmt.Errorf("no databases given in configuration file"), log))
 	}
 	otel := config.OpenTelemetry
 	if otel.OtlpExporter.Endpoint == "" {
@@ -203,6 +218,7 @@ func ParseConfig(log *logrus.Logger) (Config, []error) {
 // In particular, check that files, binaries and addresses referred to actually exist.
 func ValidateConfig(log *logrus.Logger, config Config) []error {
 	var errs []error
+	// TODO check the SPIFFE_AGENT_SOCKET_PATH environment variable
 	if config.SpiffeAgentSocketPath == "" {
 		errs = append(errs, fmt.Errorf("spiffe agent socket path is empty"))
 	}

@@ -13,7 +13,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
+
+// TODO clean up these tests. There should be a resetMock between each test, and
+// should use require(error) not assert(error)
 
 // Docker returns HijackedResponse structs that contain a Conn and have a Close function
 // By mocking a TCPConn we get the needed fields to have a HijackedResponse that can be Closed
@@ -77,6 +81,11 @@ func TestFindExecutable(t *testing.T) {
 		Reader: bufio.NewReader(bytes.NewBuffer([]byte{})), // Fake output buffer with no contents
 	}
 
+	resetMocks := func() {
+		mockClient = new(MockDockerClient) // Create a new mock instance
+		dc.cli = mockClient                // Set the new mock instance to the DockerContext
+	}
+
 	// Scenario: Executable is found
 	t.Run("Executable found", func(t *testing.T) {
 
@@ -94,6 +103,7 @@ func TestFindExecutable(t *testing.T) {
 		mockClient.AssertExpectations(t)
 	})
 
+	resetMocks()
 	// Scenario: Executable not found
 	t.Run("Executable not found", func(t *testing.T) {
 		// Mock expectations for a non-existing executable
@@ -109,6 +119,7 @@ func TestFindExecutable(t *testing.T) {
 		mockClient.AssertExpectations(t)
 	})
 
+	resetMocks()
 	// Scenario: Error during ContainerExecCreate
 	t.Run("Error from ContainerExecCreate", func(t *testing.T) {
 		// Mock expectations
@@ -118,11 +129,12 @@ func TestFindExecutable(t *testing.T) {
 		_, err := dc.FindExecutable(context.Background(), []string{"/test/path"}, "test-executable")
 
 		// Asserts
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Contains(t, err.Error(), "Failed to create exec context")
 		mockClient.AssertExpectations(t)
 	})
 
+	resetMocks()
 	// Scenario: Error during ContainerExecAttach
 	t.Run("Error from ContainerExecAttach", func(t *testing.T) {
 		// Mock expectations
@@ -157,6 +169,7 @@ func TestCheckExecutable(t *testing.T) {
 		// Mock expectations
 		mockClient.On("ContainerExecCreate", mock.Anything, "test-container-id", mock.Anything).Return(types.IDResponse{ID: "mocked-id"}, nil)
 		mockClient.On("ContainerExecAttach", mock.Anything, "mocked-id", mock.Anything).Return(mockHijackedResponse, nil)
+		mockClient.On("ContainerExecInspect", mock.Anything, "mocked-id").Return(types.ContainerExecInspect{ExitCode: 0}, nil) // TODO this may be wrong
 
 		// Run the function
 		err := dc.CheckExecutable(context.Background(), "/test/path/executable")
@@ -177,6 +190,7 @@ func TestCheckExecutable(t *testing.T) {
 		}
 		mockClient.On("ContainerExecCreate", mock.Anything, "test-container-id", mock.Anything).Return(types.IDResponse{ID: "mocked-id"}, nil)
 		mockClient.On("ContainerExecAttach", mock.Anything, "mocked-id", mock.Anything).Return(nonExecResponse, nil)
+		mockClient.On("ContainerExecInspect", mock.Anything, "mocked-id").Return(types.ContainerExecInspect{ExitCode: 0}, nil) // TODO this may be wrong
 
 		// Run the function
 		err := dc.CheckExecutable(context.Background(), "/test/path/non-executable")
@@ -208,6 +222,7 @@ func TestFindPaths(t *testing.T) {
 		// Mock expectations for valid directories
 		mockClient.On("ContainerExecCreate", mock.Anything, "test-container-id", mock.Anything).Return(types.IDResponse{ID: "mocked-id"}, nil).Times(2)
 		mockClient.On("ContainerExecAttach", mock.Anything, "mocked-id", mock.Anything).Return(mockHijackedResponse, nil).Times(2)
+		mockClient.On("ContainerExecInspect", mock.Anything, "mocked-id").Return(types.ContainerExecInspect{ExitCode: 0}, nil) // TODO this may be wrong
 
 		paths, err := dc.FindPaths(context.Background(), []string{"/valid/path1", "/valid/path2"})
 
@@ -246,7 +261,10 @@ func TestRunCmd(t *testing.T) {
 		Conn:   &NoOpCloseConn{},                                  // Use the no-op close connection
 		Reader: bufio.NewReader(bytes.NewBuffer([]byte("hello"))), // Fake output buffer with no contents
 	}
-
+	resetMocks := func() {
+		mockClient = new(MockDockerClient) // Create a new mock instance
+		dc.cli = mockClient                // Set the new mock instance to the DockerContext
+	}
 	// Scenario: Command runs successfully
 	t.Run("Command success", func(t *testing.T) {
 		// Mock expectations
@@ -260,7 +278,7 @@ func TestRunCmd(t *testing.T) {
 		assert.Equal(t, "hello", output)
 		mockClient.AssertExpectations(t)
 	})
-
+	resetMocks()
 	// Scenario: Command failure
 	t.Run("Command failure", func(t *testing.T) {
 		// Mock expectations for command failure
@@ -276,6 +294,7 @@ func TestRunCmd(t *testing.T) {
 		assert.Contains(t, err.Error(), "command failed")
 		mockClient.AssertExpectations(t)
 	})
+	resetMocks()
 
 	t.Run("Command timeout", func(t *testing.T) {
 		// Mock expectations for a long-running command (e.g., sleep 10 seconds)

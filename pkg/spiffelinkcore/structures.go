@@ -8,6 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// This is passed in many places so they can get the config data and logger
 type SpiffeLinkCore struct {
 	Logger *logrus.Logger
 	Config *config.Config

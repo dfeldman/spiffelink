@@ -37,15 +37,15 @@ func (rwac *RealWorkloadAPIClient) WatchX509Context(ctx context.Context, w workl
 }
 
 type Updater struct {
-	config config.Config
+	config *config.Config
 	client WorkloadAPIClient
 	tm     taskmanager.ManagerInterface
 	stores []datastore.Datastore
 	logger *logrus.Logger
-	sl     spiffelinkcore.SpiffeLinkCore
+	sl     *spiffelinkcore.SpiffeLinkCore
 }
 
-func NewUpdater(config config.Config, client WorkloadAPIClient, tm taskmanager.ManagerInterface, stores []datastore.Datastore, logger *logrus.Logger) *Updater {
+func NewUpdater(config *config.Config, client WorkloadAPIClient, tm taskmanager.ManagerInterface, stores []datastore.Datastore, logger *logrus.Logger) *Updater {
 	return &Updater{
 		config: config,
 		client: client,
@@ -57,10 +57,16 @@ func NewUpdater(config config.Config, client WorkloadAPIClient, tm taskmanager.M
 
 func (u *Updater) Start(ctx context.Context) {
 	u.logger.Info("Starting SPIFFE updater...")
+	// TODO this should probably be passed in higher up the stack
+	u.sl = &spiffelinkcore.SpiffeLinkCore{
+		Logger: u.logger,
+		Config: u.config,
+	}
 	err := u.client.WatchX509Context(ctx, u)
 	if err != nil {
 		u.logger.Fatalf("Error watching X.509 context: %v", err)
 	}
+
 }
 
 func (u *Updater) OnX509ContextUpdate(c *workloadapi.X509Context) {
@@ -93,6 +99,6 @@ func (u *Updater) stepListTaskFuncBuilder(sl step.StepList, dbc *config.Database
 	return func(logger *logrus.Logger, ctx context.Context, out chan step.StepFuncOutputMessage) {
 		// TODO wire in the output channel here
 		// TODO make the Mode option work properly
-		step.Run(ctx, &u.sl, dbc, sl.Steps, mode)
+		step.Run(ctx, u.sl, dbc, sl.Steps, mode)
 	}
 }

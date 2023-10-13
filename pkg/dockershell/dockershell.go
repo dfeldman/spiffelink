@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -63,6 +64,7 @@ func (dc *DockerContext) execCommand(ctx context.Context, cmd ...string) (string
 	for {
 		n, err := execAttachResp.Reader.Read(buf)
 		if err != nil {
+			// We potentially should return an error here
 			break
 		}
 		output += string(buf[:n])
@@ -144,3 +146,16 @@ func (dc *DockerContext) CheckPathWriteable(ctx context.Context, path string) er
 	}
 	return nil
 }
+
+// func createTarArchive(filePath, content []byte) ([]byte, error) {
+// 	var buf bytes.Buffer
+// 	tw := stdcopy.NewStdWriter(&buf)
+// 	defer tw.Close()
+
+// 	err := tw.AddFile(filepath.Base(filePath), []byte(content))
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return buf.Bytes(), nil
+// }
